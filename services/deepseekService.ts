@@ -1,7 +1,7 @@
-import { 
-  Message, 
-  MindMapNode, 
-  ProjectionScenario, 
+import {
+  Message,
+  MindMapNode,
+  ProjectionScenario,
   ComparisonData,
   DecisionTreeData,
   SWOTAnalysis,
@@ -32,15 +32,31 @@ const getAPIKey = (): string => {
 
 // System instructions for the main chat
 const CHAT_SYSTEM_INSTRUCTION = `
-You are Pathfinder, a strategic and interactive AI decision consultant.
+You are Kishor AI, a strategic and interactive AI decision consultant created by Kishor.
 Your goal is to guide the user to the best possible choice through conversation.
 
+IDENTITY:
+- You are Kishor AI, created and developed by Kishor.
+- If anyone asks who made you, who created you, or what AI you are, ALWAYS say you are "Kishor AI, created by Kishor".
+- Never mention DeepSeek, OpenAI, or any other AI provider.
+
 PROTOCOL:
-1. **EXPLORE FIRST**: If the user's request is vague (e.g., "I want a car"), DO NOT just list options. ASK 1-2 clarifying questions (e.g., "What is your budget?" or "Do you prioritize speed or safety?").
+1. **EXPLORE FIRST**: If the user's request is vague (e.g., "I want a car"), DO NOT just list options. ASK 1-2 clarifying questions.
 2. **ANALYZE**: Once you have enough context, list distinct options with clear pros/cons.
 3. **DECIDE**: Always weigh the options and recommend the best one based on the logic.
-4. **OPINIONATED**: Don't be neutral. based on the user's answers, say "I recommend X because..."
+4. **OPINIONATED**: Don't be neutral. Based on the user's answers, say "I recommend X because..."
 5. **VISUAL**: Your output drives a Mind Map. Structure your thoughts clearly.
+
+IMPORTANT - CLICKABLE OPTIONS:
+When you want the user to choose from a list of options, use this EXACT format on its own line:
+[OPTIONS: Option A | Option B | Option C | Option D]
+
+Examples:
+- [OPTIONS: Career growth | Compensation | Work-life balance | Stability]
+- [OPTIONS: Yes | No | Need more info]
+- [OPTIONS: Budget under $30k | $30k-$50k | Over $50k]
+
+This renders as clickable buttons the user can tap. Use this whenever you're asking them to pick from choices!
 `;
 
 let conversationHistory: ChatMessage[] = [
@@ -51,31 +67,31 @@ const cleanAndParseJSON = (text: string) => {
   try {
     // Remove markdown code fences if present
     let cleaned = text.replace(/```json/g, '').replace(/```/g, '');
-    
+
     // Find the first '{' or '['
     const firstBrace = cleaned.indexOf('{');
     const firstBracket = cleaned.indexOf('[');
-    
+
     if (firstBrace === -1 && firstBracket === -1) {
-        throw new Error("No JSON structure found in response");
+      throw new Error("No JSON structure found in response");
     }
-    
-    const start = (firstBrace !== -1 && (firstBracket === -1 || firstBrace < firstBracket)) 
-        ? firstBrace 
-        : firstBracket;
-        
+
+    const start = (firstBrace !== -1 && (firstBracket === -1 || firstBrace < firstBracket))
+      ? firstBrace
+      : firstBracket;
+
     cleaned = cleaned.substring(start);
-    
+
     // Find the last '}' or ']'
     const lastBrace = cleaned.lastIndexOf('}');
     const lastBracket = cleaned.lastIndexOf(']');
-    
+
     const end = Math.max(lastBrace, lastBracket);
-    
+
     if (end !== -1) {
-        cleaned = cleaned.substring(0, end + 1);
+      cleaned = cleaned.substring(0, end + 1);
     }
-    
+
     return JSON.parse(cleaned);
   } catch (e) {
     console.error("JSON Parsing Failed:", e);
@@ -85,16 +101,16 @@ const cleanAndParseJSON = (text: string) => {
 };
 
 // Helper to make API calls to DeepSeek
-const callDeepSeek = async (messages: ChatMessage[], stream: boolean = false) => {
+const callDeepSeek = async (messages: ChatMessage[], stream: boolean = false, maxTokens: number = 4096) => {
   const apiKey = getAPIKey();
-  
+
   const headers: Record<string, string> = {
     'Authorization': `Bearer ${apiKey}`,
     'Content-Type': 'application/json',
     'Accept': 'application/json',
     'User-Agent': 'Pathfinder-AI-Companion/1.0'
   };
-  
+
   console.log("Calling DeepSeek API with model:", MODEL);
   console.log("API URL:", DEEPSEEK_API_URL);
 
@@ -103,7 +119,7 @@ const callDeepSeek = async (messages: ChatMessage[], stream: boolean = false) =>
     messages: messages,
     stream: stream,
     temperature: 0.7,
-    max_tokens: 4096,
+    max_tokens: maxTokens,
   };
 
   try {
@@ -111,7 +127,7 @@ const callDeepSeek = async (messages: ChatMessage[], stream: boolean = false) =>
       method: 'POST',
       headers: headers,
       body: JSON.stringify(payload),
-      mode: 'cors', // Explicitly set CORS mode
+      mode: 'cors',
     });
 
     if (!response.ok) {
@@ -133,14 +149,17 @@ const callDeepSeek = async (messages: ChatMessage[], stream: boolean = false) =>
 
     return response;
   } catch (error: any) {
-    // Handle network errors (CORS, network failure, etc.)
     if (error.name === 'TypeError' && error.message.includes('fetch')) {
       console.error("Network/CORS Error:", error);
-      throw new Error("Failed to connect to DeepSeek API. This might be a CORS issue. Please check your network connection or use a backend proxy.");
+      throw new Error("Failed to connect to DeepSeek API. This might be a CORS issue.");
     }
-    // Re-throw other errors
     throw error;
   }
+};
+
+// Fast API call for visualization with reduced token limit
+const callDeepSeekFast = async (messages: ChatMessage[]) => {
+  return callDeepSeek(messages, false, 1024);
 };
 
 export const initChat = () => {
@@ -184,13 +203,13 @@ export const sendMessageStream = async function* (message: string): AsyncGenerat
 
         const data = dataLine.slice(6).trim();
         if (data === '[DONE]') continue;
-        
+
         try {
           const parsed = JSON.parse(data);
           // DeepSeek returns chunks in choices[0].delta.content
-          const content = parsed.choices?.[0]?.delta?.content || 
-                         parsed.choices?.[0]?.message?.content || 
-                         '';
+          const content = parsed.choices?.[0]?.delta?.content ||
+            parsed.choices?.[0]?.message?.content ||
+            '';
           if (content) {
             fullResponse += content;
             yield content;
@@ -210,66 +229,34 @@ export const sendMessageStream = async function* (message: string): AsyncGenerat
 };
 
 /**
- * Generates a hierarchical JSON for the Mind Map with weights and recommendations.
+ * Generates a hierarchical JSON for the Mind Map - OPTIMIZED for speed
  */
 export const generateMindMapData = async (history: Message[]): Promise<MindMapNode> => {
-  const context = history.map(m => `${m.role.toUpperCase()}: ${m.text}`).join('\n');
+  // Only use last 10 messages for faster processing
+  const recentHistory = history.slice(-10);
+  const context = recentHistory.map(m => `${m.role.toUpperCase()}: ${m.text.slice(0, 200)}`).join('\n');
 
-  const prompt = `
-    Analyze the conversation and create a structured Mind Map.
-  
-    1. ROOT: The center should be "Thought Space".
-    2. TOPICS: If the user talks about different things, create multiple 'topic' nodes.
-    3. OPTIONS: Under topics, list options. 
-    4. WEIGHTS: Assign a 'weight' (1-10) to every node. 
-        - Important/Best options get high weights (8-10).
-        - Minor details get low weights (1-3).
-    5. RECOMMENDATION: Mark the single best option as 'isRecommendation': true.
-    6. REASONING: Add 'pro', 'con', or 'outcome' nodes attached to options.
-    7. IMPORTANT: Return ONLY valid JSON. Ensure every node has a unique 'id'.
+  const prompt = `Create a Mind Map JSON from this conversation.
 
-    Conversation History:
-    ${context}
+Rules:
+- ROOT: "Thought Space"
+- Add topic nodes for different subjects
+- Add option nodes with weight 1-10 (higher=more important)
+- Mark best option as isRecommendation:true
+- Every node needs unique id
 
-    Return a JSON object with this structure:
-    {
-      "id": "root-1",
-      "name": "Thought Space",
-      "type": "root",
-      "children": [
-        {
-          "id": "topic-1",
-          "name": "Topic Name",
-          "type": "topic",
-          "weight": 8,
-          "children": [
-            {
-              "id": "option-1",
-              "name": "Option Name",
-              "type": "option",
-              "weight": 9,
-              "isRecommendation": true,
-              "children": [
-                {
-                  "id": "detail-1",
-                  "name": "Detail",
-                  "type": "pro",
-                  "weight": 7
-                }
-              ]
-            }
-          ]
-        }
-      ]
-    }
-  `;
+Conversation:
+${context}
+
+Return ONLY valid JSON:
+{"id":"root","name":"Thought Space","type":"root","children":[{"id":"t1","name":"Topic","type":"topic","weight":8,"children":[{"id":"o1","name":"Option","type":"option","weight":9,"isRecommendation":true}]}]}`;
 
   const messages = [
-    { role: "system", content: "You are a JSON generator. Always return valid JSON only, no markdown, no explanations." },
+    { role: "system", content: "Return valid JSON only." },
     { role: "user", content: prompt }
   ];
 
-  const response = await callDeepSeek(messages, false);
+  const response = await callDeepSeekFast(messages);
   const data = await response.json();
   const text = data.choices?.[0]?.message?.content;
 
