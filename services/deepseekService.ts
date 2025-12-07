@@ -9,23 +9,26 @@ import {
   TimelineData
 } from "../types";
 
-// DeepSeek API Configuration
-// Use proxy in development to avoid CORS issues
-const USE_PROXY = import.meta.env.VITE_DEEPSEEK_USE_PROXY !== 'false'; // Default to true
-const DEEPSEEK_BASE_URL = import.meta.env.VITE_DEEPSEEK_API_URL || "https://api.deepseek.com/v1/chat/completions";
-// In development, use Vite proxy to avoid CORS. In production, try direct API first.
-const DEEPSEEK_API_URL = (USE_PROXY && import.meta.env.DEV)
-  ? "/api/deepseek/chat/completions"  // Use Vite proxy in development
-  : DEEPSEEK_BASE_URL;  // Direct API (may have CORS issues in browser)
+// API Configuration
+// Development: Use Vite proxy to avoid CORS
+// Production: Use Netlify Function (which holds API key securely)
+const IS_DEV = import.meta.env.DEV;
+const DEEPSEEK_API_URL = IS_DEV
+  ? "/api/deepseek/chat/completions"  // Vite proxy in development
+  : "/api/chat";  // Netlify Function in production (secure!)
 const MODEL = import.meta.env.VITE_DEEPSEEK_MODEL || "deepseek-chat";
 
 type ChatMessage = { role: string; content: string };
 
-// Helper to get API key
+// Helper to get API key (only needed in development)
 const getAPIKey = (): string => {
+  // In production, the Netlify function has the API key
+  if (!IS_DEV) {
+    return ''; // Not needed - serverless function handles it
+  }
   const apiKey = import.meta.env.VITE_DEEPSEEK_API_KEY || '';
   if (!apiKey) {
-    throw new Error("DeepSeek API key is missing. Please set VITE_DEEPSEEK_API_KEY in your .env file.");
+    throw new Error("API key is missing. Please set VITE_DEEPSEEK_API_KEY in your .env file.");
   }
   return apiKey;
 };
@@ -100,16 +103,19 @@ const cleanAndParseJSON = (text: string) => {
   }
 };
 
-// Helper to make API calls to DeepSeek
+// Helper to make API calls
 const callDeepSeek = async (messages: ChatMessage[], stream: boolean = false, maxTokens: number = 4096) => {
-  const apiKey = getAPIKey();
-
+  // Build headers - only include Authorization in development
   const headers: Record<string, string> = {
-    'Authorization': `Bearer ${apiKey}`,
     'Content-Type': 'application/json',
     'Accept': 'application/json',
-    'User-Agent': 'Pathfinder-AI-Companion/1.0'
   };
+
+  // In development, add API key header (in production, Netlify function handles it)
+  if (IS_DEV) {
+    const apiKey = getAPIKey();
+    headers['Authorization'] = `Bearer ${apiKey}`;
+  }
 
   console.log("Calling DeepSeek API with model:", MODEL);
   console.log("API URL:", DEEPSEEK_API_URL);
